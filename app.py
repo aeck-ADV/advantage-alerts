@@ -11,7 +11,7 @@ client = Client(
     st.secrets["TWILIO_ACCOUNT_SID"]
 )
 service_sid = st.secrets["TWILIO_MESSAGING_SERVICE_SID"]
-PASSWORD = st.secrets["PASSWORD"]
+PASSWORD = st.secrets["PASSWORD"]   # ← Put your strong random password here
 
 # ====================== AUTH ======================
 if "authenticated" not in st.session_state:
@@ -36,39 +36,66 @@ with tab1:
     st.title("Send Company-Wide Alert")
     st.caption("IT & HR SMS Broadcast Tool • Powered by Twilio")
 
-    # CSV selector
+    # === UPLOAD NEW LIST ===
+    st.subheader("📤 Upload New Employee List")
+    uploaded_file = st.file_uploader("Upload CSV (must have 'name' and 'phone' columns)", 
+                                   type=["csv"])
+    if uploaded_file:
+        try:
+            new_df = pd.read_csv(uploaded_file)
+            filename = uploaded_file.name
+            if not filename.endswith(".csv"):
+                filename += ".csv"
+            new_df.to_csv(filename, index=False)
+            st.success(f"✅ Uploaded and saved as **{filename}**")
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
+
+    # === SELECT EXISTING LIST ===
     csv_files = [f for f in os.listdir(".") if f.endswith(".csv")]
     csv_files.sort()
-    selected_csv = st.selectbox("Select employee list:", csv_files)
+    
+    if not csv_files:
+        st.error("No CSV files found. Please upload one above.")
+        st.stop()
 
-    # Load CSV + auto-fix phones
+    selected_csv = st.selectbox("Select employee list to send to:", csv_files)
+
+    # Load selected CSV
     try:
         df = pd.read_csv(selected_csv)
-        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.strip().str.lower()
+        
+        if 'phone' not in df.columns:
+            st.error("CSV must have a 'phone' column")
+            st.stop()
+        
         def fix_phone(p):
             p = str(p).strip()
             if not p.startswith("+"):
                 return "+1" + p.lstrip("1")
             return p
+        
         df["phone"] = df["phone"].apply(fix_phone)
-        st.success(f"✅ Loaded {len(df)} employees from **{selected_csv}**")
+        
+        name_col = 'name' if 'name' in df.columns else df.columns[0]
+        st.success(f"✅ Loaded {len(df)} recipients from **{selected_csv}**")
     except Exception as e:
         st.error(f"Could not load {selected_csv}: {e}")
         st.stop()
 
-    # Username (required)
-    username = st.text_input("Your name (for logging):", value="", placeholder="Enter your name")
-
-    message = st.text_area("Message to send to all employees:", height=150,
-                           placeholder="All hands: Network maintenance tonight at 10 PM...")
+    # Username + Message
+    username = st.text_input("Your name (for logging):", value="", placeholder="Enter your full name")
+    message = st.text_area("Message to send:", height=150, 
+                          placeholder="All hands: Network maintenance tonight at 10 PM...")
 
     if st.button("🚀 SEND TO ALL EMPLOYEES", type="primary", use_container_width=True):
         if not username.strip():
-            st.error("Please enter your name for logging.")
+            st.error("Please enter your name.")
         elif not message.strip():
             st.error("Message cannot be empty!")
         else:
-            with st.spinner(f"Sending to {len(df)} employees as {username}..."):
+            with st.spinner(f"Sending to {len(df)} employees..."):
                 success_count = 0
                 for _, row in df.iterrows():
                     try:
@@ -79,7 +106,7 @@ with tab1:
                         )
                         success_count += 1
                     except Exception as e:
-                        st.warning(f"Failed {row.get('name', row['phone'])}: {e}")
+                        st.warning(f"Failed {row.get(name_col, row['phone'])}: {e}")
 
                 # Log
                 log_entry = pd.DataFrame([{
@@ -97,25 +124,17 @@ with tab1:
                 else:
                     log_entry.to_csv(log_file, index=False)
 
-                st.success(f"✅ Sent to {success_count}/{len(df)} employees!")
+                st.success(f"✅ Message sent to {success_count}/{len(df)} employees!")
                 st.info("Broadcast logged.")
 
-    st.caption("Note: Campaign is currently under Twilio review. Messages will deliver once approved.")
+    st.caption("Note: Campaign is currently under Twilio review.")
 
-# ====================== VIEW PAST BROADCASTS TAB ======================
+# ====================== VIEW PAST BROADCASTS ======================
 with tab2:
     st.title("📜 Past Broadcasts")
-    st.caption("All previous company-wide alerts")
-
     if os.path.exists("broadcast_log.csv"):
         log_df = pd.read_csv("broadcast_log.csv")
         st.dataframe(log_df.sort_values("timestamp", ascending=False), use_container_width=True)
-        
-        st.download_button(
-            label="📥 Download full log as CSV",
-            data=log_df.to_csv(index=False),
-            file_name="broadcast_log.csv",
-            mime="text/csv"
-        )
+        st.download_button("Download Log", log_df.to_csv(index=False), "broadcast_log.csv", "text/csv")
     else:
-        st.info("No broadcasts yet. Send your first one to see the log here.")
+        st.info("No broadcasts yet.")
