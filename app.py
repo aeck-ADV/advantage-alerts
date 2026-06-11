@@ -11,7 +11,7 @@ client = Client(
     st.secrets["TWILIO_ACCOUNT_SID"]
 )
 service_sid = st.secrets["TWILIO_MESSAGING_SERVICE_SID"]
-PASSWORD = st.secrets["PASSWORD"]   # ← Put your strong random password here
+PASSWORD = st.secrets["PASSWORD"]
 
 # ====================== AUTH ======================
 if "authenticated" not in st.session_state:
@@ -36,7 +36,7 @@ with tab1:
     st.title("Send Company-Wide Alert")
     st.caption("IT & HR SMS Broadcast Tool • Powered by Twilio")
 
-    # === UPLOAD NEW LIST ===
+    # Upload new list
     st.subheader("📤 Upload New Employee List")
     uploaded_file = st.file_uploader("Upload CSV (must have 'name' and 'phone' columns)", 
                                    type=["csv"])
@@ -47,11 +47,11 @@ with tab1:
             if not filename.endswith(".csv"):
                 filename += ".csv"
             new_df.to_csv(filename, index=False)
-            st.success(f"✅ Uploaded and saved as **{filename}**")
+            st.success(f"✅ Saved as **{filename}**")
         except Exception as e:
             st.error(f"Upload failed: {e}")
 
-    # === SELECT EXISTING LIST ===
+    # Select list
     csv_files = [f for f in os.listdir(".") if f.endswith(".csv")]
     csv_files.sort()
     
@@ -61,7 +61,7 @@ with tab1:
 
     selected_csv = st.selectbox("Select employee list to send to:", csv_files)
 
-    # Load selected CSV
+    # Load and clean
     try:
         df = pd.read_csv(selected_csv)
         df.columns = df.columns.str.strip().str.lower()
@@ -69,13 +69,21 @@ with tab1:
         if 'phone' not in df.columns:
             st.error("CSV must have a 'phone' column")
             st.stop()
-        
+
         def fix_phone(p):
             p = str(p).strip()
-            if not p.startswith("+"):
-                return "+1" + p.lstrip("1")
-            return p
-        
+            # Remove +1 or leading 1
+            p = p.replace("+1", "").replace("1", "", 1)
+            # Keep only digits
+            p = ''.join(filter(str.isdigit, p))
+            # Add +1 if we have 10 digits
+            if len(p) == 10:
+                return "+1" + p
+            elif len(p) == 11 and p.startswith("1"):
+                return "+1" + p[1:]
+            else:
+                return "+1" + p  # fallback
+
         df["phone"] = df["phone"].apply(fix_phone)
         
         name_col = 'name' if 'name' in df.columns else df.columns[0]
@@ -84,7 +92,6 @@ with tab1:
         st.error(f"Could not load {selected_csv}: {e}")
         st.stop()
 
-    # Username + Message
     username = st.text_input("Your name (for logging):", value="", placeholder="Enter your full name")
     message = st.text_area("Message to send:", height=150, 
                           placeholder="All hands: Network maintenance tonight at 10 PM...")
@@ -135,6 +142,6 @@ with tab2:
     if os.path.exists("broadcast_log.csv"):
         log_df = pd.read_csv("broadcast_log.csv")
         st.dataframe(log_df.sort_values("timestamp", ascending=False), use_container_width=True)
-        st.download_button("Download Log", log_df.to_csv(index=False), "broadcast_log.csv", "text/csv")
+        st.download_button("📥 Download Log", log_df.to_csv(index=False), "broadcast_log.csv", "text/csv")
     else:
         st.info("No broadcasts yet.")
