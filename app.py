@@ -36,10 +36,9 @@ with tab1:
     st.title("Send Company-Wide Alert")
     st.caption("IT & HR SMS Broadcast Tool • Powered by Twilio")
 
-    # Upload new list
+    # Upload
     st.subheader("📤 Upload New Employee List")
-    uploaded_file = st.file_uploader("Upload CSV (must have 'name' and 'phone' columns)", 
-                                   type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV (columns: name, phone)", type=["csv"])
     if uploaded_file:
         try:
             new_df = pd.read_csv(uploaded_file)
@@ -47,54 +46,45 @@ with tab1:
             if not filename.endswith(".csv"):
                 filename += ".csv"
             new_df.to_csv(filename, index=False)
-            st.success(f"✅ Saved as **{filename}**")
+            st.success(f"✅ Saved: **{filename}**")
         except Exception as e:
             st.error(f"Upload failed: {e}")
 
-    # Select list
+    # Select file
     csv_files = [f for f in os.listdir(".") if f.endswith(".csv")]
     csv_files.sort()
-    
-    if not csv_files:
-        st.error("No CSV files found. Please upload one above.")
-        st.stop()
+    selected_csv = st.selectbox("Select employee list:", csv_files)
 
-    selected_csv = st.selectbox("Select employee list to send to:", csv_files)
-
-    # Load and clean
+    # Load + robust cleaning
     try:
         df = pd.read_csv(selected_csv)
         df.columns = df.columns.str.strip().str.lower()
-        
-        if 'phone' not in df.columns:
-            st.error("CSV must have a 'phone' column")
-            st.stop()
 
         def fix_phone(p):
+            if pd.isna(p) or str(p).strip() == "":
+                return None
             p = str(p).strip()
-            # Remove +1 or leading 1
-            p = p.replace("+1", "").replace("1", "", 1)
             # Keep only digits
-            p = ''.join(filter(str.isdigit, p))
-            # Add +1 if we have 10 digits
-            if len(p) == 10:
-                return "+1" + p
-            elif len(p) == 11 and p.startswith("1"):
-                return "+1" + p[1:]
+            digits = ''.join(filter(str.isdigit, p))
+            # Remove leading 1 if 11 digits
+            if len(digits) == 11 and digits.startswith("1"):
+                digits = digits[1:]
+            if len(digits) == 10:
+                return "+1" + digits
             else:
-                return "+1" + p  # fallback
+                return None  # skip bad numbers
 
         df["phone"] = df["phone"].apply(fix_phone)
-        
+        df = df.dropna(subset=["phone"])  # remove bad numbers
+
         name_col = 'name' if 'name' in df.columns else df.columns[0]
-        st.success(f"✅ Loaded {len(df)} recipients from **{selected_csv}**")
+        st.success(f"✅ Loaded {len(df)} valid recipients from **{selected_csv}**")
     except Exception as e:
-        st.error(f"Could not load {selected_csv}: {e}")
+        st.error(f"Could not load file: {e}")
         st.stop()
 
-    username = st.text_input("Your name (for logging):", value="", placeholder="Enter your full name")
-    message = st.text_area("Message to send:", height=150, 
-                          placeholder="All hands: Network maintenance tonight at 10 PM...")
+    username = st.text_input("Your name (for logging):", placeholder="Enter your full name")
+    message = st.text_area("Message to send:", height=150, placeholder="Type your message here...")
 
     if st.button("🚀 SEND TO ALL EMPLOYEES", type="primary", use_container_width=True):
         if not username.strip():
@@ -113,7 +103,7 @@ with tab1:
                         )
                         success_count += 1
                     except Exception as e:
-                        st.warning(f"Failed {row.get(name_col, row['phone'])}: {e}")
+                        st.warning(f"Failed {row.get(name_col, 'Unknown')}: {e}")
 
                 # Log
                 log_entry = pd.DataFrame([{
@@ -131,17 +121,16 @@ with tab1:
                 else:
                     log_entry.to_csv(log_file, index=False)
 
-                st.success(f"✅ Message sent to {success_count}/{len(df)} employees!")
-                st.info("Broadcast logged.")
+                st.success(f"✅ Sent to {success_count}/{len(df)} employees!")
 
-    st.caption("Note: Campaign is currently under Twilio review.")
+    st.caption("Note: Campaign is under review.")
 
-# ====================== VIEW PAST BROADCASTS ======================
+# ====================== VIEW LOG ======================
 with tab2:
     st.title("📜 Past Broadcasts")
     if os.path.exists("broadcast_log.csv"):
         log_df = pd.read_csv("broadcast_log.csv")
         st.dataframe(log_df.sort_values("timestamp", ascending=False), use_container_width=True)
-        st.download_button("📥 Download Log", log_df.to_csv(index=False), "broadcast_log.csv", "text/csv")
+        st.download_button("Download Log", log_df.to_csv(index=False), "broadcast_log.csv")
     else:
         st.info("No broadcasts yet.")
