@@ -36,9 +36,9 @@ with tab1:
     st.title("Send Company-Wide Alert")
     st.caption("IT & HR SMS Broadcast Tool • Powered by Twilio")
 
-    # Upload new list
+    # Upload
     st.subheader("📤 Upload New Employee List")
-    uploaded_file = st.file_uploader("Upload CSV (columns: name, phone)", type=["csv"])
+    uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
     if uploaded_file:
         try:
             new_df = pd.read_csv(uploaded_file)
@@ -53,39 +53,38 @@ with tab1:
     # Select file
     csv_files = [f for f in os.listdir(".") if f.endswith(".csv")]
     csv_files.sort()
-    if not csv_files:
-        st.error("No CSV files found. Please upload one above.")
-        st.stop()
+    selected_csv = st.selectbox("Select employee list:", csv_files)
 
-    selected_csv = st.selectbox("Select employee list to send to:", csv_files)
-
-    # Load and clean with robust logic
+    # Load with debug
     try:
         df = pd.read_csv(selected_csv)
+        st.write("**Raw columns found:**", df.columns.tolist())   # DEBUG LINE
+        
         df.columns = df.columns.str.strip()
-        
-        # Case-insensitive column mapping
-        col_map = {col.lower(): col for col in df.columns}
-        
-        if 'phone' not in col_map:
-            st.error("CSV must have a 'phone' column")
+        st.write("**Cleaned columns:**", df.columns.tolist())     # DEBUG LINE
+
+        phone_col = None
+        for col in df.columns:
+            if 'phone' in col.lower():
+                phone_col = col
+                break
+                
+        if not phone_col:
+            st.error("No 'phone' column found!")
             st.stop()
-        
-        phone_col = col_map['phone']
-        name_col = col_map.get('name', df.columns[0])
+
+        name_col = 'name' if 'name' in [c.lower() for c in df.columns] else df.columns[0]
 
         def fix_phone(p):
             if pd.isna(p) or str(p).strip() == "":
                 return None
             p = str(p).strip()
-            # Keep only digits
             digits = ''.join(filter(str.isdigit, p))
-            # Remove leading 1 if present
             if len(digits) == 11 and digits.startswith("1"):
                 digits = digits[1:]
             if len(digits) == 10:
                 return "+1" + digits
-            return None  # bad number
+            return None
 
         df["phone"] = df[phone_col].apply(fix_phone)
         df = df.dropna(subset=["phone"]).reset_index(drop=True)
@@ -96,8 +95,7 @@ with tab1:
         st.stop()
 
     username = st.text_input("Your name (for logging):", placeholder="Enter your full name")
-    message = st.text_area("Message to send:", height=150, 
-                          placeholder="All hands: Network maintenance tonight at 10 PM...")
+    message = st.text_area("Message to send:", height=150, placeholder="Type message here...")
 
     if st.button("🚀 SEND TO ALL EMPLOYEES", type="primary", use_container_width=True):
         if not username.strip():
@@ -118,24 +116,7 @@ with tab1:
                     except Exception as e:
                         st.warning(f"Failed {row.get(name_col, row['phone'])}: {e}")
 
-                # Log
-                log_entry = pd.DataFrame([{
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "sender": username.strip(),
-                    "csv_used": selected_csv,
-                    "message": message,
-                    "recipients": len(df),
-                    "successful": success_count
-                }])
-                
-                log_file = "broadcast_log.csv"
-                if os.path.exists(log_file):
-                    log_entry.to_csv(log_file, mode='a', header=False, index=False)
-                else:
-                    log_entry.to_csv(log_file, index=False)
-
                 st.success(f"✅ Sent to {success_count}/{len(df)} employees!")
-                st.info("Broadcast logged.")
 
     st.caption("Note: Campaign is currently under Twilio review.")
 
@@ -145,6 +126,6 @@ with tab2:
     if os.path.exists("broadcast_log.csv"):
         log_df = pd.read_csv("broadcast_log.csv")
         st.dataframe(log_df.sort_values("timestamp", ascending=False), use_container_width=True)
-        st.download_button("📥 Download full log", log_df.to_csv(index=False), "broadcast_log.csv", "text/csv")
+        st.download_button("📥 Download Log", log_df.to_csv(index=False), "broadcast_log.csv", "text/csv")
     else:
-        st.info("No broadcasts yet. Send your first one to see the log here.")
+        st.info("No broadcasts yet.")
