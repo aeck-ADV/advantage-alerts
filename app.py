@@ -55,35 +55,30 @@ with tab1:
     csv_files.sort()
     selected_csv = st.selectbox("Select employee list:", csv_files)
 
-    # Load with debug
+    # Load with improved cleaning
     try:
         df = pd.read_csv(selected_csv)
-        st.write("**Raw columns found:**", df.columns.tolist())   # DEBUG LINE
-        
         df.columns = df.columns.str.strip()
-        st.write("**Cleaned columns:**", df.columns.tolist())     # DEBUG LINE
-
-        phone_col = None
-        for col in df.columns:
-            if 'phone' in col.lower():
-                phone_col = col
-                break
-                
-        if not phone_col:
-            st.error("No 'phone' column found!")
-            st.stop()
-
-        name_col = 'name' if 'name' in [c.lower() for c in df.columns] else df.columns[0]
+        
+        # Case-insensitive column mapping
+        col_map = {col.lower(): col for col in df.columns}
+        phone_col = col_map.get('phone')
+        name_col = col_map.get('name', df.columns[0])
 
         def fix_phone(p):
             if pd.isna(p) or str(p).strip() == "":
                 return None
             p = str(p).strip()
+            # Remove everything except digits
             digits = ''.join(filter(str.isdigit, p))
-            if len(digits) == 11 and digits.startswith("1"):
+            # Remove leading 1 if 11 digits
+            if len(digits) == 11 and digits.startswith('1'):
                 digits = digits[1:]
             if len(digits) == 10:
                 return "+1" + digits
+            # If it already has +1 and 10 digits after, keep it
+            if p.startswith('+1') and len(''.join(filter(str.isdigit, p[2:]))) == 10:
+                return p
             return None
 
         df["phone"] = df[phone_col].apply(fix_phone)
@@ -95,7 +90,7 @@ with tab1:
         st.stop()
 
     username = st.text_input("Your name (for logging):", placeholder="Enter your full name")
-    message = st.text_area("Message to send:", height=150, placeholder="Type message here...")
+    message = st.text_area("Message to send:", height=150, placeholder="Type your message here...")
 
     if st.button("🚀 SEND TO ALL EMPLOYEES", type="primary", use_container_width=True):
         if not username.strip():
